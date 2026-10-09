@@ -66,7 +66,7 @@ convert_one() {
 
     gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
         gh release create "$RELEASE_TAG" --title "xbps repository" \
-            --notes "Auto-converted .xbps packages. Install: xbps-install -R ${RELEASE_URL}" || return 1
+            --notes "Auto-converted .xbps packages. Install: xbps-install -S -R ${RELEASE_URL} <pkg>" || return 1
     gh release edit "$RELEASE_TAG" --draft=false || return 1
     gh release upload "$RELEASE_TAG" "$dir"/pkgroot/binpkgs/*.xbps "$dir/pkgroot/binpkgs/x86_64-repodata" --clobber || return 1
 
