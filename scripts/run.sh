@@ -14,9 +14,18 @@ RELEASE_URL="https://github.com/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be s
 REPO_URL=https://repo-default.voidlinux.org/current
 
 check_url() {
-    local code
-    code=$(curl -sL -r 0-0 -o /dev/null -w '%{http_code}' --retry 3 "$1")
-    [ "$code" = 200 ] || [ "$code" = 206 ]
+    local code attempt
+    for attempt in 1 2 3 4 5 6; do
+        code=$(curl -sL -r 0-0 -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 2 "$1")
+        if [ "$code" = 200 ] || [ "$code" = 206 ]; then
+            return 0
+        fi
+        if [ "$attempt" -lt 6 ]; then
+            sleep 10
+        fi
+    done
+    echo "ERROR: $1 not served (http_code=$code)" >&2
+    return 1
 }
 
 convert_one() {
@@ -58,6 +67,7 @@ convert_one() {
     gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
         gh release create "$RELEASE_TAG" --title "xbps repository" \
             --notes "Auto-converted .xbps packages. Install: xbps-install -R ${RELEASE_URL}" || return 1
+    gh release edit "$RELEASE_TAG" --draft=false || return 1
     gh release upload "$RELEASE_TAG" "$dir"/pkgroot/binpkgs/*.xbps "$dir/pkgroot/binpkgs/x86_64-repodata" --clobber || return 1
 
     for deb in "${deb_files[@]}"; do
