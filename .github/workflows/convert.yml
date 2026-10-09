@@ -1,0 +1,41 @@
+name: Convert deb to xbps
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Only this watchlist entry (owner/repo); empty = all"
+        required: false
+        default: ""
+      force:
+        description: Reconvert even if tag already in state
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: debport-convert
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Convert
+        id: convert
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ONLY_REPO: ${{ inputs.repo }}
+          FORCE: ${{ inputs.force }}
+        run: bash scripts/run.sh
+      - uses: actions/upload-artifact@v4
+        if: steps.convert.outputs.converted == 'true'
+        with:
+          name: xbps-packages
+          path: work/*/pkgroot/binpkgs/*.xbps
+          if-no-files-found: error
