@@ -13,6 +13,23 @@ IMAGE=ghcr.io/void-linux/void-buildroot-glibc:latest
 RELEASE_URL="https://github.com/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}/releases/download/${RELEASE_TAG}"
 REPO_URL=https://repo-default.voidlinux.org/current
 
+if [ -n "${GITHUB_ACTIONS:-}" ] && [ -z "${XBPS_PRIVKEY:-}" ]; then
+    echo "ERROR: XBPS_PRIVKEY secret is not set; packages cannot be signed" >&2
+    exit 1
+fi
+if [ -n "${XBPS_PRIVKEY:-}" ]; then
+    umask 077
+    mkdir -p work/key
+    printf '%s\n' "$XBPS_PRIVKEY" > work/signing_key
+    openssl rsa -in work/signing_key -pubout -out work/key/pubkey.pem 2>/dev/null
+    fp=$(ssh-keygen -y -f work/signing_key | python3 -c 'import base64,hashlib,sys; b=base64.b64decode(sys.stdin.read().split()[1]); print(":".join("%02x"%x for x in hashlib.md5(b).digest()))')
+    python3 - "$fp" <<'PYEOF'
+import plistlib, sys
+pem = open("work/key/pubkey.pem", "rb").read()
+plistlib.dump({"public-key": pem}, open("work/key/%s.plist" % sys.argv[1], "wb"), fmt=plistlib.FMT_XML)
+PYEOF
+fi
+
 check_url() {
     local code attempt
     for attempt in 1 2 3 4 5 6; do
@@ -58,17 +75,22 @@ convert_one() {
     curl --retry 3 -fsSL -o "$dir/pkgroot/binpkgs/x86_64-repodata" "$RELEASE_URL/x86_64-repodata" \
         || rm -f "$dir/pkgroot/binpkgs/x86_64-repodata"
 
+    keymount=""
+    if [ -f work/signing_key ]; then
+        keymount="-v $PWD/work/signing_key:/signing_key:ro"
+    fi
     docker run --rm \
         -v "$PWD/$dir/debs:/in:ro" \
         -v "$PWD/$dir/pkgroot:/pkgroot" \
         -v "$PWD/scripts:/ci:ro" \
+        $keymount \
         "$IMAGE" /ci/convert.sh /in /pkgroot "$@" || return 1
 
     gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
         gh release create "$RELEASE_TAG" --title "xbps repository" \
-            --notes "Auto-converted .xbps packages. Install: xbps-install -S -R ${RELEASE_URL} <pkg>" || return 1
+            --notes "Auto-converted .xbps packages, RSA-signed. Install: xbps-install -S -R ${RELEASE_URL} <pkg> (answer Y to import the signing key)" || return 1
     gh release edit "$RELEASE_TAG" --draft=false || return 1
-    gh release upload "$RELEASE_TAG" "$dir"/pkgroot/binpkgs/*.xbps "$dir/pkgroot/binpkgs/x86_64-repodata" --clobber || return 1
+    gh release upload "$RELEASE_TAG" "$dir"/pkgroot/binpkgs/*.xbps "$dir"/pkgroot/binpkgs/*.xbps.sig2 "$dir/pkgroot/binpkgs/x86_64-repodata" --clobber || return 1
 
     for deb in "${deb_files[@]}"; do
         pkgname=$(basename "$deb" | cut -d_ -f1)
@@ -78,8 +100,15 @@ convert_one() {
         [ -f "$dir/pkgroot/binpkgs/$expected" ] || { echo "ERROR: produced $(basename "$deb") != $expected" >&2; return 1; }
         check_url "$RELEASE_URL/x86_64-repodata" || { echo "ERROR: repodata not served" >&2; return 1; }
         check_url "$RELEASE_URL/$expected" || { echo "ERROR: $expected not served" >&2; return 1; }
+        check_url "$RELEASE_URL/${expected}.sig2" || { echo "ERROR: ${expected}.sig2 not served" >&2; return 1; }
+        eprefix=""
+        ekeymount=""
+        if [ -f work/signing_key ]; then
+            eprefix="cp /key/*.plist /var/db/xbps/keys/ && "
+            ekeymount="-v $PWD/work/key:/key:ro"
+        fi
         attempt=0
-        until docker run --rm "$IMAGE" sh -c "xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' -S && xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' --dry-run '$pkgname'"; do
+        until docker run --rm $ekeymount "$IMAGE" sh -c "${eprefix}xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' -S && xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' --dry-run '$pkgname'"; do
             attempt=$((attempt + 1))
             if [ "$attempt" -ge 6 ]; then
                 echo "ERROR: dry-run verification failed for $pkgname after $attempt attempts" >&2

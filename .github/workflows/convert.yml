@@ -30,6 +30,7 @@ jobs:
         id: convert
         env:
           GH_TOKEN: ${{ github.token }}
+          XBPS_PRIVKEY: ${{ secrets.XBPS_PRIVKEY }}
           ONLY_REPO: ${{ inputs.repo }}
           FORCE: ${{ inputs.force }}
         run: bash scripts/run.sh

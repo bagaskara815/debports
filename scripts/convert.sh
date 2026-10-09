@@ -61,3 +61,8 @@ if [ ! -s "$pkgroot/binpkgs/${arch}-repodata" ]; then
     echo "ERROR: repodata missing" >&2
     exit 1
 fi
+
+if [ -f /signing_key ]; then
+    xbps-rindex --sign --privkey /signing_key --signedby "bagaskara815 <bagaskara815@gmail.com>" "$pkgroot/binpkgs"
+    xbps-rindex --sign-pkg --privkey /signing_key "$pkgroot"/binpkgs/*.xbps
+fi
