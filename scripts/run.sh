@@ -78,7 +78,7 @@ convert_one() {
         [ -f "$dir/pkgroot/binpkgs/$expected" ] || { echo "ERROR: produced $(basename "$deb") != $expected" >&2; return 1; }
         check_url "$RELEASE_URL/x86_64-repodata" || { echo "ERROR: repodata not served" >&2; return 1; }
         check_url "$RELEASE_URL/$expected" || { echo "ERROR: $expected not served" >&2; return 1; }
-        docker run --rm "$IMAGE" xbps-install --repository="$RELEASE_URL" -R "$REPO_URL" --simulate "$pkgname" || return 1
+        docker run --rm "$IMAGE" sh -c "xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' -S && xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' --dry-run '$pkgname'" || return 1
     done
 
     mkdir -p "$(dirname "state/$repo.txt")" || return 1
