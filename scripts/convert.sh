@@ -9,8 +9,15 @@ missing=""
 for spec in xz:xz tar:tar curl:curl ar:binutils objdump:binutils xbps-rindex:xbps xbps-create:xbps; do
     command -v "${spec%%:*}" >/dev/null 2>&1 || missing="$missing ${spec##*:}"
 done
+if ! printf 'x\n' | grep -P 'x' >/dev/null 2>&1; then
+    missing="$missing grep"
+fi
 if [ -n "$missing" ]; then
-    xbps-install -R https://repo-default.voidlinux.org/current -Sy $missing
+    xbps-install -R https://repo-default.voidlinux.org/current -Sfy $missing
+fi
+if ! printf 'x\n' | grep -P 'x' >/dev/null 2>&1; then
+    echo "ERROR: grep without PCRE (-P) support; xdeb cannot parse control files" >&2
+    exit 1
 fi
 
 mkdir -p "$pkgroot"
