@@ -48,7 +48,7 @@ check_url() {
 convert_one() {
     local repo=$1 glob=$2
     shift 2
-    local tag dir pkgname pkgver expected
+    local tag dir dbf pkn pkv pkgver expected
     local -a deb_files
 
     tag=$(gh api "repos/$repo/releases/latest" --jq .tag_name) || return 1
@@ -92,12 +92,19 @@ convert_one() {
     gh release edit "$RELEASE_TAG" --draft=false || return 1
     gh release upload "$RELEASE_TAG" "$dir"/pkgroot/binpkgs/*.xbps "$dir"/pkgroot/binpkgs/*.xbps.sig2 "$dir/pkgroot/binpkgs/x86_64-repodata" --clobber || return 1
 
-    for deb in "${deb_files[@]}"; do
-        pkgname=$(basename "$deb" | cut -d_ -f1)
+    if [ ! -s "$dir/pkgroot/manifest" ]; then
+        echo "ERROR: conversion manifest missing for $repo" >&2
+        return 1
+    fi
+    while IFS=$'\t' read -r dbf pkn pkv; do
         pkgver=$(docker run --rm -v "$PWD/$dir/pkgroot:/pkgroot:ro" "$IMAGE" \
-            xbps-query --repository=/pkgroot/binpkgs -p pkgver "$pkgname") || return 1
-        expected="${pkgver}.x86_64.xbps"
-        [ -f "$dir/pkgroot/binpkgs/$expected" ] || { echo "ERROR: produced $(basename "$deb") != $expected" >&2; return 1; }
+            xbps-query --repository=/pkgroot/binpkgs -p pkgver "$pkn") || return 1
+        if [ "$pkgver" != "$pkv" ]; then
+            echo "ERROR: repodata has $pkgver for $pkn, expected $pkv" >&2
+            return 1
+        fi
+        expected="${pkv}.x86_64.xbps"
+        [ -f "$dir/pkgroot/binpkgs/$expected" ] || { echo "ERROR: produced $dbf != $expected" >&2; return 1; }
         check_url "$RELEASE_URL/x86_64-repodata" || { echo "ERROR: repodata not served" >&2; return 1; }
         check_url "$RELEASE_URL/$expected" || { echo "ERROR: $expected not served" >&2; return 1; }
         check_url "$RELEASE_URL/${expected}.sig2" || { echo "ERROR: ${expected}.sig2 not served" >&2; return 1; }
@@ -108,15 +115,15 @@ convert_one() {
             ekeymount="-v $PWD/work/key:/key:ro"
         fi
         attempt=0
-        until docker run --rm $ekeymount "$IMAGE" sh -c "${eprefix}xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' -S && xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' --dry-run '$pkgname'"; do
+        until docker run --rm $ekeymount "$IMAGE" sh -c "${eprefix}xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' -S && xbps-install --repository='$RELEASE_URL' -R '$REPO_URL' --dry-run '$pkn'"; do
             attempt=$((attempt + 1))
             if [ "$attempt" -ge 6 ]; then
-                echo "ERROR: dry-run verification failed for $pkgname after $attempt attempts" >&2
+                echo "ERROR: dry-run verification failed for $pkn after $attempt attempts" >&2
                 return 1
             fi
             sleep 30
         done
-    done
+    done < "$dir/pkgroot/manifest"
 
     mkdir -p "$(dirname "state/$repo.txt")" || return 1
     printf '%s\n' "$tag" > "state/$repo.txt" || return 1
