@@ -1,6 +1,9 @@
 # debport watchlist — one entry per line: <owner>/<repo>|<asset glob>|<extra xdeb flags>
+# First field may also be an HTTP pool directory URL (ending in /); then the newest
+# filename matching the glob (version sort) is downloaded and recorded as state.
 # Glob is REQUIRED and must select x86_64/amd64 debs only (runner is x86_64; rindex drops other arches).
 # Extra flags are whitespace-separated xdeb options appended to "-Sedf" (no spaces inside a flag value).
 imputnet/helium-linux|*_amd64.deb|
 brave/brave-browser|*_amd64.deb|
 Heroic-Games-Launcher/HeroicGamesLauncher|*amd64.deb|
+https://rpm.librewolf.net/pool/|librewolf-*x86_64-deb.deb|

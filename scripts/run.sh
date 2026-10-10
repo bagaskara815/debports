@@ -48,28 +48,54 @@ check_url() {
 convert_one() {
     local repo=$1 glob=$2
     shift 2
-    local tag dir dbf pkn pkv pkgver expected
+    local tag dir statefile dbf pkn pkv pkgver expected
     local -a deb_files
 
-    tag=$(gh api "repos/$repo/releases/latest" --jq .tag_name) || return 1
+    case "$repo" in
+        https://*|http://*)
+            statefile="state/${repo//\//_}.txt"
+            tag=$(curl -fsSL "$repo" | grep -o 'href="[^"]*"' | sed 's/^href="//;s/"$//;s|.*/||' \
+                | while IFS= read -r n; do case "$n" in $glob) printf '%s\n' "$n";; esac; done \
+                | sort -V | tail -n1)
+            if [ -z "$tag" ]; then
+                echo "::error::glob '$glob' matched nothing in $repo"
+                return 1
+            fi
+            ;;
+        *)
+            statefile="state/$repo.txt"
+            tag=$(gh api "repos/$repo/releases/latest" --jq .tag_name) || return 1
+            ;;
+    esac
 
-    if [ "$FORCE" != true ] && [ -f "state/$repo.txt" ] && [ "$(cat "state/$repo.txt")" = "$tag" ]; then
+    if [ "$FORCE" != true ] && [ -f "$statefile" ] && [ "$(cat "$statefile")" = "$tag" ]; then
         echo "skip $repo@$tag"
         return 0
     fi
 
     dir="work/${repo//\//__}"
+    case "$repo" in
+        https://*|http://*) dir="work/${repo//[\/:]/_}";;
+    esac
     rm -rf "$dir" || return 1
     mkdir -p "$dir/debs" || return 1
 
-    gh release download -R "$repo" "$tag" -p "$glob" -D "$dir/debs" || true
-    shopt -s nullglob
-    deb_files=("$dir"/debs/*.deb)
-    shopt -u nullglob
-    if [ ${#deb_files[@]} -eq 0 ]; then
-        echo "::error::glob '$glob' matched nothing in $repo@$tag; assets: $(gh api "repos/$repo/releases/latest" --jq '.assets[].name' | tr '\n' ' ')"
-        return 1
-    fi
+    case "$repo" in
+        https://*|http://*)
+            curl --retry 3 -fsSL -o "$dir/debs/$tag" "$repo$tag" || return 1
+            deb_files=("$dir/debs/$tag")
+            ;;
+        *)
+            gh release download -R "$repo" "$tag" -p "$glob" -D "$dir/debs" || true
+            shopt -s nullglob
+            deb_files=("$dir"/debs/*.deb)
+            shopt -u nullglob
+            if [ ${#deb_files[@]} -eq 0 ]; then
+                echo "::error::glob '$glob' matched nothing in $repo@$tag; assets: $(gh api "repos/$repo/releases/latest" --jq '.assets[].name' | tr '\n' ' ')"
+                return 1
+            fi
+            ;;
+    esac
 
     mkdir -p "$dir/pkgroot/binpkgs" || return 1
     curl --retry 3 -fsSL -o "$dir/pkgroot/binpkgs/x86_64-repodata" "$RELEASE_URL/x86_64-repodata" \
@@ -125,8 +151,8 @@ convert_one() {
         done
     done < "$dir/pkgroot/manifest"
 
-    mkdir -p "$(dirname "state/$repo.txt")" || return 1
-    printf '%s\n' "$tag" > "state/$repo.txt" || return 1
+    mkdir -p "$(dirname "$statefile")" || return 1
+    printf '%s\n' "$tag" > "$statefile" || return 1
     converted_here=true
     return 0
 }
