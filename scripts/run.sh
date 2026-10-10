@@ -52,6 +52,10 @@ convert_one() {
     local -a deb_files
 
     case "$repo" in
+        https://*.deb|http://*.deb)
+            statefile="state/${repo//\//_}.txt"
+            tag="$repo"
+            ;;
         https://*|http://*)
             statefile="state/${repo//\//_}.txt"
             tag=$(curl -fsSL "$repo" | grep -o 'href="[^"]*"' | sed 's/^href="//;s/"$//;s|.*/||' \
@@ -81,6 +85,10 @@ convert_one() {
     mkdir -p "$dir/debs" || return 1
 
     case "$repo" in
+        https://*.deb|http://*.deb)
+            curl --retry 3 -fsSL -o "$dir/debs/${repo##*/}" "$repo" || return 1
+            deb_files=("$dir/debs/${repo##*/}")
+            ;;
         https://*|http://*)
             curl --retry 3 -fsSL -o "$dir/debs/$tag" "$repo$tag" || return 1
             deb_files=("$dir/debs/$tag")
