@@ -9,3 +9,4 @@ brave/brave-browser|*_amd64.deb|
 Heroic-Games-Launcher/HeroicGamesLauncher|*amd64.deb|
 https://rpm.librewolf.net/pool/|librewolf-*x86_64-deb.deb|
 2dust/v2rayN|v2rayN-linux-64.deb|
+https://files2.freedownloadmanager.org/6/latest/freedownloadmanager.deb|*|
